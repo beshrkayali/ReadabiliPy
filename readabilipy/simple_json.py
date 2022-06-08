@@ -1,4 +1,5 @@
 import hashlib
+from uuid import uuid4
 import json
 import os
 import tempfile
@@ -14,43 +15,52 @@ from .utils import chdir
 
 
 def have_node():
-    """Check that we can run node and have a new enough version """
+    """Check that we can run node and have a new enough version"""
     try:
-        cp = subprocess.run(['node', '-v'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+        cp = subprocess.run(
+            ["node", "-v"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False
+        )
     except FileNotFoundError:
         return False
 
     if not cp.returncode == 0:
         return False
 
-    major = int(cp.stdout.split(b'.')[0].lstrip(b'v'))
+    major = int(cp.stdout.split(b".")[0].lstrip(b"v"))
     if major < 10:
         return False
 
     # check that this package has a node_modules dir in the javascript
     # directory, if it doesn't, it wasn't installed with Node support
-    jsdir = os.path.join(os.path.dirname(__file__), 'javascript')
-    node_modules = os.path.join(jsdir, 'node_modules')
+    jsdir = os.path.join(os.path.dirname(__file__), "javascript")
+    node_modules = os.path.join(jsdir, "node_modules")
     return os.path.exists(node_modules)
 
 
-def simple_json_from_html_string(html, content_digests=False, node_indexes=False, use_readability=False):
+def simple_json_from_html_string(
+    html, content_digests=False, node_indexes=False, use_readability=False
+):
     if use_readability and not have_node():
-        print("Warning: node executable not found, reverting to pure-Python mode. Install Node.js v10 or newer to use Readability.js.", file=sys.stderr)
+        print(
+            "Warning: node executable not found, reverting to pure-Python mode. Install Node.js v10 or newer to use Readability.js.",
+            file=sys.stderr,
+        )
         use_readability = False
 
     if use_readability:
         temp_dir = tempfile.gettempdir()
         # Write input HTML to temporary file so it is available to the node.js script
-        html_path = os.path.join(temp_dir, "full.html")
-        with open(html_path, 'w') as f:
+        html_path = os.path.join(temp_dir, f"full-{uuid4().hex}.html")
+        with open(html_path, "w") as f:
             f.write(html)
 
         # Call Mozilla's Readability.js Readability.parse() function via node, writing output to a temporary file
-        article_json_path = os.path.join(temp_dir, "article.json")
-        jsdir = os.path.join(os.path.dirname(__file__), 'javascript')
+        article_json_path = os.path.join(temp_dir, f"article-{uuid4().hex}.json")
+        jsdir = os.path.join(os.path.dirname(__file__), "javascript")
         with chdir(jsdir):
-            subprocess.check_call(["node", "ExtractArticle.js", "-i", html_path, "-o", article_json_path])
+            subprocess.check_call(
+                ["node", "ExtractArticle.js", "-i", html_path, "-o", article_json_path]
+            )
 
         # Read output of call to Readability.parse() from JSON file and return as Python dictionary
         with open(article_json_path) as f:
@@ -59,7 +69,7 @@ def simple_json_from_html_string(html, content_digests=False, node_indexes=False
         input_json = {
             "title": extract_title(html),
             "date": extract_date(html),
-            "content": str(simple_tree_from_html_string(html))
+            "content": str(simple_tree_from_html_string(html)),
         }
 
     # Only keep the subset of Readability.js fields we are using (and therefore testing for accuracy of extraction)
@@ -71,7 +81,7 @@ def simple_json_from_html_string(html, content_digests=False, node_indexes=False
         "date": None,
         "content": None,
         "plain_content": None,
-        "plain_text": None
+        "plain_text": None,
     }
     # Populate article fields from readability fields where present
     if input_json:
@@ -83,20 +93,34 @@ def simple_json_from_html_string(html, content_digests=False, node_indexes=False
             article_json["date"] = input_json["date"]
         if "content" in input_json and input_json["content"]:
             article_json["content"] = input_json["content"]
-            article_json["plain_content"] = plain_content(article_json["content"], content_digests, node_indexes)
-            article_json["plain_text"] = extract_text_blocks_as_plain_text(article_json["plain_content"])
+            article_json["plain_content"] = plain_content(
+                article_json["content"], content_digests, node_indexes
+            )
+            article_json["plain_text"] = extract_text_blocks_as_plain_text(
+                article_json["plain_content"]
+            )
 
     return article_json
 
 
 def extract_text_blocks_as_plain_text(paragraph_html):
     # Load article as DOM
-    soup = BeautifulSoup(paragraph_html, 'html.parser')
+    soup = BeautifulSoup(paragraph_html, "html.parser")
     # Select all lists
-    list_elements = soup.find_all(['ul', 'ol'])
+    list_elements = soup.find_all(["ul", "ol"])
     # Prefix text in all list items with "* " and make lists paragraphs
     for list_element in list_elements:
-        plain_items = "".join(list(filter(None, [plain_text_leaf_node(li)["text"] for li in list_element.find_all('li')])))
+        plain_items = "".join(
+            list(
+                filter(
+                    None,
+                    [
+                        plain_text_leaf_node(li)["text"]
+                        for li in list_element.find_all("li")
+                    ],
+                )
+            )
+        )
         list_element.string = plain_items
         list_element.name = "p"
     # Select all text blocks
@@ -123,7 +147,7 @@ def plain_text_leaf_node(element):
 
 def plain_content(readability_content, content_digests, node_indexes):
     # Load article as DOM
-    soup = BeautifulSoup(readability_content, 'html.parser')
+    soup = BeautifulSoup(readability_content, "html.parser")
     # Make all elements plain
     elements = plain_elements(soup.contents, content_digests, node_indexes)
     if node_indexes:
@@ -136,8 +160,9 @@ def plain_content(readability_content, content_digests, node_indexes):
 
 def plain_elements(elements, content_digests, node_indexes):
     # Get plain content versions of all elements
-    elements = [plain_element(element, content_digests, node_indexes)
-                for element in elements]
+    elements = [
+        plain_element(element, content_digests, node_indexes) for element in elements
+    ]
     if content_digests:
         # Add content digest attribute to nodes
         elements = [add_content_digest(element) for element in elements]
@@ -166,12 +191,14 @@ def plain_element(element, content_digests, node_indexes):
             element = type(element)(plain_text)
     else:
         # If not a leaf node or leaf type call recursively on child nodes, replacing
-        element.contents = plain_elements(element.contents, content_digests, node_indexes)
+        element.contents = plain_elements(
+            element.contents, content_digests, node_indexes
+        )
     return element
 
 
 def is_leaf(element):
-    return (element.name in ['p', 'li'])
+    return element.name in ["p", "li"]
 
 
 def is_text(element):
@@ -190,10 +217,10 @@ def add_node_indexes(element, node_index="0"):
     element["data-node-index"] = node_index
     # Add index to child elements
     for local_idx, child in enumerate(
-            [c for c in element.contents if not is_text(c)], start=1):
+        [c for c in element.contents if not is_text(c)], start=1
+    ):
         # Can't add attributes to leaf string types
-        child_index = "{stem}.{local}".format(
-            stem=node_index, local=local_idx)
+        child_index = "{stem}.{local}".format(stem=node_index, local=local_idx)
         add_node_indexes(child, node_index=child_index)
     return element
 
@@ -211,7 +238,7 @@ def content_digest(element):
         if trimmed_string == "":
             digest = ""
         else:
-            digest = hashlib.sha256(trimmed_string.encode('utf-8')).hexdigest()
+            digest = hashlib.sha256(trimmed_string.encode("utf-8")).hexdigest()
     else:
         contents = element.contents
         num_contents = len(contents)
@@ -225,8 +252,11 @@ def content_digest(element):
             # Build content digest from the "non-empty" digests of child nodes
             digest = hashlib.sha256()
             child_digests = list(
-                filter(lambda x: x != "", [content_digest(content) for content in contents]))
+                filter(
+                    lambda x: x != "", [content_digest(content) for content in contents]
+                )
+            )
             for child in child_digests:
-                digest.update(child.encode('utf-8'))
+                digest.update(child.encode("utf-8"))
             digest = digest.hexdigest()
     return digest
